@@ -1,19 +1,34 @@
 #!/usr/bin/env python3
+import os
+from typing import Iterable, Union
+
+from pyhmmer import hmmsearch
+from pyhmmer.easel import SequenceFile, Alphabet
+from pyhmmer.plan7 import Background, HMMFile, HMM
+
 import re
 import sys
-from utils import *
 from pathlib import Path
-from icecream import ic
 
-# GENOMES_DIR = Path(sys.argv[1])
 QUERIES_DIR = Path("queries")
 OUT_FILE = Path(sys.argv[1])
-OUT_FH = open(OUT_FILE, "ab")
-VERBOSE = False
-
 GENOMES = sys.argv[2:]
 
 GENOME_REGEX = re.compile(r"(GCF_\d+\.\d)\.faa$")
+
+
+class HMMFiles(Iterable[HMM]):
+    def __init__(self, *files: Union[str, bytes, os.PathLike]):
+        self.files = files
+
+    def __iter__(self):
+        for file in self.files:
+            with HMMFile(file) as hmm_file:
+                yield from hmm_file
+
+
+alphabet = Alphabet.amino()
+background = Background(alphabet)
 
 
 def get_hmms(queries_path):
@@ -26,7 +41,6 @@ def run_genome(genome_path, hmms_files):
     with SequenceFile(genome_path, digital=True) as genome_file:
         genome = genome_file.read_block()
     hits = hmmsearch(hmms_files, genome)
-    # del genome
     return hits
 
 
@@ -36,20 +50,44 @@ def parse_genome(genome_path):
     return genome
 
 
+def parse_hit(hit):
+    out = [
+        (pid := hit.name.decode("utf-8")),
+        (query := hit.hits.query_accession.decode("utf-8")),
+        (score := hit.score),
+        (start := hit.best_domain.env_from),
+        (end := hit.best_domain.env_to),
+        (included := hit.included),
+        (reported := hit.reported),
+        (pid_description := hit.description.decode("utf-8")),
+        (query_description := hit.hits.query_name.decode("utf-8")),
+    ]
+
+    out = [str(i) for i in out]
+    return "\t".join(out) + "\n"
+
+
 if __name__ == "__main__":
     hmms_files = get_hmms(QUERIES_DIR)
 
-    for idx, genome in enumerate(GENOMES):
-        idx += 1
-        if VERBOSE:
-            print(f".{idx}", end="", flush=True)
+    OUT = {}
+    for genome in GENOMES:
 
         genome_id = parse_genome(genome)
-        hits = run_genome(genome, hmms_files)
+        results = run_genome(genome, hmms_files)
 
-        for hit in hits:
-            if len(hit) > 0:
-                OUT_FH.write(f"{genome_id}\t".encode("utf-8"))
-                hit.write(OUT_FH, header=False)
+        TO_WRITE = list()
+        for top_hits in results:
+            for hit in top_hits:
+                parsed = parse_hit(hit)
+                hit_data = f"{genome_id}\t{parsed}"
+                TO_WRITE.append(hit_data)
 
-        del hits
+        OUT[genome_id] = TO_WRITE
+
+        del results
+
+    with open(OUT_FILE, "w") as tsv:
+        for genome in OUT:
+            for hit_data in OUT[genome]:
+                tsv.write(hit_data)
