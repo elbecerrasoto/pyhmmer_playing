@@ -10,9 +10,9 @@ import re
 import sys
 from pathlib import Path
 
-QUERIES_DIR = Path("queries")
-OUT_FILE = Path(sys.argv[1])
-GENOMES = sys.argv[2:]
+QUERIES_DIR = Path(sys.argv[1])
+OUT_FILE = Path(sys.argv[2])
+GENOMES = sys.argv[3:]
 
 GENOME_REGEX = re.compile(r"(GCF_\d+\.\d)\.faa$")
 
